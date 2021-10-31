@@ -46,7 +46,7 @@ def preprocess() -> (Vocab, Vocab, list):
 
 
 def tensor_sentence(vocab: Vocab, sentence: str) -> torch.tensor:
-    idx = [vocab.word2idx[word] for word in sentence.split(' ')]
+    idx = [vocab.word2idx[word] for word in sentence.split(' ') if (word in vocab.word2idx)]
     idx.append(1)
     return torch.tensor(idx, dtype=torch.long, device=device).view(-1, 1)
 
@@ -87,21 +87,19 @@ def train(encoder: Encoder, decoder: Decoder, epochs: int, translation_input: Vo
 
         decoder_input = torch.tensor([[0]], device=device)
 
-        decoder_hidden = encoder_hidden
-
         is_tf = (random.random() < tfr)
 
         if is_tf:
             for idx2 in range(target_length):
                 decoder_output, decoder_hidden = decoder(
-                    decoder_input, decoder_hidden)
+                    decoder_input, encoder_hidden)
                 loss += nll(decoder_output, target_tensor[idx2])
                 decoder_input = target_tensor[idx2]
 
         else:
             for idx2 in range(target_length):
                 decoder_output, decoder_hidden = decoder(
-                    decoder_input, decoder_hidden)
+                    decoder_input, encoder_hidden)
                 topv, topi = decoder_output.topk(1)
                 decoder_input = topi.squeeze().detach()
 
@@ -117,9 +115,10 @@ def train(encoder: Encoder, decoder: Decoder, epochs: int, translation_input: Vo
         loss_sum += loss
 
         if idx % 1000 == 0:
-            print_loss_avg = loss_sum / 1000
+            loss_avg = loss_sum / 1000
+            logging.info(f"Epoch {idx}: {loss_avg} loss")
             loss_sum = 0
-            logging.info(f"Epoch {idx}: {print_loss_avg} loss")
+
 
 def evaluate(encoder: Encoder, decoder: Decoder, num: int, translation_pairs: list, inputs: Vocab,
              outputs: Vocab) -> None:
@@ -169,31 +168,31 @@ if __name__ == '__main__':
     s = datetime.now().strftime("%Y-%m-%d-%H:%M:%S")
     arg = sys.argv[1]
     logging.basicConfig(filename=f"log/{s}.log", encoding='utf-8',
-                        level=logging.DEBUG if arg == "DEBUG" else logging.INFO)
+                        level=logging.DEBUG)
     logging.info("=" * 10 + "Initializing Project" + "=" * 10)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     logging.info(f"Device: {device}")
 
     logging.info(f"Start Preprocessing...")
+    translation_input: Vocab
     translation_input, translation_output, pairs = preprocess()
 
     logging.info(f"Initializing Encoder and Decoder...")
     encoder = Encoder(translation_input.word_count, hidden).to(device)
     decoder = Decoder(hidden, translation_output.word_count).to(device)
-#    logging.info(f"Start Training...")
-#    train(encoder, decoder, 80000, translation_input, translation_output, pairs)
+    logging.info(f"Start Training...")
+    train(encoder, decoder, 80000, translation_input, translation_output, pairs)
 
-    #    logging.info(f"Saving Objects...")
+    logging.info(f"Saving Objects...")
 
-    #    torch.save('checkpoint/encoder2021-10-31-04:03:50.pth')
-#    torch.save('checkpoint/decoder2021-10-31-04:03:50.pth')
-    logging.info(f"Loading Objects...")
-    encoder.load_state_dict(torch.load('checkpoint/encoder2021-10-31-04:03:50.pth'))
-    decoder.load_state_dict(torch.load('checkpoint/decoder2021-10-31-04:03:50.pth'))
+    torch.save(f'checkpoint/encoder{s}.pth')
+    torch.save(f'checkpoint/decoder{s}pth')
 
+    logging.info(f"translation_input: { translation_input}")
+    logging.info(f"translation_output: { translation_output}")
 
-    logging.info(f"Start Evaluating...")
+    logging.info("Start Evaluating...")
     evaluate(encoder, decoder, 10, pairs, translation_input, translation_output)
 
 

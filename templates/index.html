@@ -1,0 +1,13 @@
+<doctype html="">
+    <title>Seq2Seq</title>
+<h2>Learning Phrase Representations using RNN Encoder-Decoder for Statistical Machine Translation <a href="https://arxiv.org/abs/1406.1078"> (Link)</a></h2>
+
+<form style="width: 100%; height: 60px;" method="post">
+    <input id="search" name="search" type="text" style="float: left; color:black; width: 70%; font-size: 30px; height: 60px; border:2px solid #60cb6c" placeholder="Type in French to retrieve English tranlsation..."><input type="submit" value="Search" style="font-size: 30px;border:2px solid #60cb6c; width: 15%; color: white;  height: 60px;background-color:#60cb6c; float: left">
+</form>
+    {% if is_result %}
+    </br>
+    <p> French: <b>{{ input }}</b> </p>
+    <p> English: <b>{{ result }}</b> </p>
+    {% endif %}
+</doctype>
