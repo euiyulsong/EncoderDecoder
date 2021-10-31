@@ -25,7 +25,7 @@ def preprocess() -> (Vocab, Vocab, list):
     ))) for s in line.split('\t')] for line in file]
 
     translation_pair = [list(reversed(p)) for p in translation_pair]
-
+    # filtered the pairs in order to reduce training set for testing
     translation_pair = [pair for pair in translation_pair if (len(pair[0].split(' ')) < 10 and
                                                               len(pair[1].split(' ')) < 10 and
                                                               pair[1].startswith((
@@ -44,7 +44,6 @@ def preprocess() -> (Vocab, Vocab, list):
     for pair in translation_pair:
         translation_input.update(pair[0])
         translation_output.update(pair[1])
-    logging.debug(f"A random pair from translation pair: {random.choice(translation_pair)}")
 
     return translation_input, translation_output, translation_pair
 
@@ -89,18 +88,18 @@ def train(encoder: Encoder, decoder: Decoder, epochs: int, translation_input: Vo
             encoder_outputs[idx2] = encoder_output[0, 0]
 
         decoder_input = torch.tensor([[0]], device=device)
-
-        is_tf = (random.random() < tfr)
+        decoder_hidden = encoder_hidden
+        is_tf = True if random.random() < tfr else False
 
         if is_tf:
             for idx2 in range(target_length):
-                decoder_output, decoder_hidden = decoder(decoder_input, encoder_hidden)
+                decoder_output, decoder_hidden = decoder(decoder_input, decoder_hidden)
                 loss += nll(decoder_output, target_tensor[idx2])
                 decoder_input = target_tensor[idx2]
 
         else:
             for idx2 in range(target_length):
-                decoder_output, decoder_hidden = decoder(decoder_input, encoder_hidden)
+                decoder_output, decoder_hidden = decoder(decoder_input, decoder_hidden)
                 topv, topi = decoder_output.topk(1)
                 decoder_input = topi.squeeze().detach()
 
@@ -210,6 +209,3 @@ if __name__ == '__main__':
     """
     logging.info("Start Evaluating...")
     evaluate(encoder, decoder, pairs, translation_input, translation_output)
-
-
-

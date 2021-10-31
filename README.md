@@ -36,4 +36,4 @@
 ![](img/1.png)
 
 ### Limitation
-* Due to time-constraint to complete this project, I was not able to split test and train data for test bleu score. Also, I will add more data, add dropout, or add regularization in order to reduce overfitting. Lastly, I will add t-SNE to visualize my model's embeddings  
+* Due to time-constraint to complete this project, I was not able to split test and train data for test bleu score. Also, I will add more data, add dropout, or add regularization in order to reduce overfitting. Additionally, I will add t-SNE to visualize my model's embeddings. Lastly, the training phase needs to be fixed, because the training phase stopped working properly after I refactored the code. Thus, it would be my appreciation if you use my checkpoint instead of training my model again.
