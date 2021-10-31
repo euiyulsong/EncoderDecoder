@@ -1,10 +1,10 @@
 from ignite.metrics.nlp import Bleu
 
-m = Bleu(ngram=4, smooth="smooth1")
+m = Bleu(ngram=2, smooth="smooth1")
 
-y_pred = "apple"
-y = "apple"
+y_pred = "i m capable of making my own decisions ."
+y = "i am capable of doing my duty ."
 
-m.update((y_pred.split(), y.split()))
+m.update((y_pred.split(), [y.split()]))
 
 print(m.compute().item())
