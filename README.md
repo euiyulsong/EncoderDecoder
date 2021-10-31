@@ -25,6 +25,7 @@
   * Bigram: 0.7362
   * Trigram: 0.5625
   * 4-gram: 0.3772
+  * Desc: Macroscopically looking at the log and BLEU score, I maintain that my model trained French to English dictionary very well. Thus, I am not going through underfitting problems.  
 
 * Prediction on unseen French word
   * Looking at the website I implemented, it was obvious that this model cannot predict unseen French phrases very well. Thus, this model has overfitting problem. 

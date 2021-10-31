@@ -7,3 +7,8 @@ run:
 app:
 	python3 app.py
 
+
+generate_pdf:
+	markdown-pdf README.md
+	mv README.pdf report.pdf
+
