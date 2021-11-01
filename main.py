@@ -1,8 +1,3 @@
-# Learning Phrase Representations using RNN Encoder-Decoder for Statistical Machine Translation
-## https://arxiv.org/abs/1406.1078
-## EuiYul Song (20214426)
-
-from __future__ import unicode_literals, print_function, division
 from io import open
 import unicodedata
 import re
@@ -13,32 +8,20 @@ from encoder import Encoder
 from decoder import Decoder
 import logging
 from datetime import datetime
+from ignite.metrics.nlp import Bleu
 
 
-
-def preprocess() -> (Vocab, Vocab, list):
-    file = open('data/eng-fra.txt', encoding='utf-8').read().strip().split('\n')
-
+def preprocess(dir: str) -> (Vocab, Vocab, list):
+    file = open(dir, encoding='utf-8').read().strip().split('\n')
     translation_pair = [[re.sub(r"[^a-zA-Z.!?]+", r" ", re.sub(r"([.!?])", r" \1", ''.join(
         c for c in unicodedata.normalize('NFD', s.lower().strip())
         if unicodedata.category(c) != 'Mn'
     ))) for s in line.split('\t')] for line in file]
 
     translation_pair = [list(reversed(p)) for p in translation_pair]
-    # filtered the pairs in order to reduce training set for testing
-    translation_pair = [pair for pair in translation_pair if (len(pair[0].split(' ')) < 10 and
-                                                              len(pair[1].split(' ')) < 10 and
-                                                              pair[1].startswith((
-                                                                  "i am ", "he is", "she is", "you are", "we are",
-                                                                  "they are", "i m ", "he s ", "she s ", "you re ", "we re ",
-                                                                  "they re "
-                                                              )
-                                                              ))]
+    translation_pair = [pair for pair in translation_pair if (len(pair[0].split(' ')) < 7 and
+                                                              len(pair[1].split(' ')) < 7)]
 
-#    random.shuffle(translation_pair)
-#    test_pair = translation_pair[int(0.9*(len(translation_pair))):]
-#    print(len(test_pair))
-#    translation_pair = translation_pair[:int(0.9*(len(translation_pair)))]
     translation_input = Vocab()
     translation_output = Vocab()
     for pair in translation_pair:
@@ -48,113 +31,81 @@ def preprocess() -> (Vocab, Vocab, list):
     return translation_input, translation_output, translation_pair
 
 
-def tensor_sentence(vocab: Vocab, sentence: str) -> torch.tensor:
-    idx = [vocab.word2idx[word] for word in sentence.split(' ') if (word in vocab.word2idx)]
-    idx.append(1)
-    return torch.tensor(idx, dtype=torch.long, device=device).view(-1, 1)
-
 def train(encoder: Encoder, decoder: Decoder, epochs: int, translation_input: Vocab, translation_output: Vocab,
           pairs: list) -> None:
     loss_sum = 0
 
-    encoder_opt = torch.optim.SGD(encoder.parameters(), lr=0.01)
-    decoder_opt = torch.optim.SGD(decoder.parameters(), lr=0.01)
-    random_pair = random.choice(pairs)
-    training_pairs = [(tensor_sentence(translation_input, random_pair[0]),
-                       tensor_sentence(translation_output, random_pair[1]))
-                      for i in range(epochs)]
+    pairings = [pairing(random.choice(pairs), translation_input, translation_output) for i in range(epochs)]
+
     nll = torch.nn.NLLLoss()
 
-    for idx in range(1, epochs + 1):
-        training_pair = training_pairs[idx - 1]
-        input_tensor = training_pair[0]
-        target_tensor = training_pair[1]
-        tfr = 0.5
+    encoder_opt = torch.optim.SGD(encoder.parameters(), lr=0.01)
+    decoder_opt = torch.optim.SGD(decoder.parameters(), lr=0.01)
 
-        encoder_hidden = torch.zeros(1, 1, encoder.hidden, device=device)
+    for idx in range(1, epochs + 1):
+        pair = pairings[idx - 1]
+        input_pair = pair[0]
+        output_pair = pair[1]
 
         encoder_opt.zero_grad()
         decoder_opt.zero_grad()
-
-        input_length = input_tensor.size(0)
-        target_length = target_tensor.size(0)
-
-        encoder_outputs = torch.zeros(10, encoder.hidden, device=device)
-
         loss = 0
 
-        for idx2 in range(input_length):
-            encoder_output, encoder_hidden = encoder(input_tensor[idx2], encoder_hidden)
-            encoder_outputs[idx2] = encoder_output[0, 0]
+        e_h, e_o, d_i, e_h, d_h = get_encoder_output(input_pair, encoder)
 
-        decoder_input = torch.tensor([[0]], device=device)
-        decoder_hidden = encoder_hidden
-        is_tf = True if random.random() < tfr else False
+        for idx2 in range(output_pair.size(0)):
+            d_o, d_h = decoder(d_i, d_h)
+            _, i = d_o.topk(1)
+            d_i = i.squeeze().detach()
 
-        if is_tf:
-            for idx2 in range(target_length):
-                decoder_output, decoder_hidden = decoder(decoder_input, decoder_hidden)
-                loss += nll(decoder_output, target_tensor[idx2])
-                decoder_input = target_tensor[idx2]
-
-        else:
-            for idx2 in range(target_length):
-                decoder_output, decoder_hidden = decoder(decoder_input, decoder_hidden)
-                topv, topi = decoder_output.topk(1)
-                decoder_input = topi.squeeze().detach()
-
-                loss += nll(decoder_output, target_tensor[idx2])
-                if decoder_input.item() == 1:
-                    break
+            loss += nll(d_o, output_pair[idx2])
+            if d_i.item() == 1:
+                break
 
         loss.backward()
 
         encoder_opt.step()
         decoder_opt.step()
-        loss = loss.item() / target_length
+        loss = loss.item() / output_pair.size(0)
         loss_sum += loss
 
         if idx % 1000 == 0:
-            loss_avg = loss_sum / 1000
-            logging.info(f"Epoch {idx}: {loss_avg} loss")
+            print(f"Epoch {idx}: {loss_sum / 1000} loss")
             loss_sum = 0
 
 
+def get_encoder_output(input_pair: list, encoder: Encoder):
+    e_h = torch.zeros(1, 1, encoder.hidden, device=device)
+    e_o = torch.zeros(7, encoder.hidden, device=device)
+
+    for i in range(input_pair.size(0)):
+        temp, e_h = encoder(input_pair[i], e_h)
+        e_o[i] = temp[0, 0]
+    d_i = torch.tensor([[0]], device=device)
+    d_h = e_h
+    return e_h, e_o, d_i, e_h, d_h
+
+
+@torch.no_grad()
 def evaluate(encoder: Encoder, decoder: Decoder, translation_pairs: list, inputs: Vocab,
              outputs: Vocab) -> None:
-    from ignite.metrics.nlp import Bleu
-    bleu1_sum = bleu2_sum = bleu3_sum  = bleu4_sum= 0
+    bleu1_sum = bleu2_sum = bleu3_sum = bleu4_sum = 0
     for pair in translation_pairs:
-        logging.info(f"French: { pair[0] }, English: { pair[1] }")
+        input_pair = sentencing(inputs, pair[0])
 
-        with torch.no_grad():
-            input_tensor = tensor_sentence(inputs, pair[0])
-            input_length = input_tensor.size()[0]
-            encoder_hidden = torch.zeros(1, 1, encoder.hidden, device=device)
+        e_h, e_o, d_i, e_h, d_h = get_encoder_output(input_pair, encoder)
 
-            encoder_outputs = torch.zeros(10, encoder.hidden, device=device)
+        results = []
 
-            for ei in range(input_length):
-                encoder_output, encoder_hidden = encoder(input_tensor[ei], encoder_hidden)
-                encoder_outputs[ei] += encoder_output[0, 0]
+        for idx in range(7):
+            d_o, d_h = decoder(d_i, d_h)
+            _, i = d_o.data.topk(1)
+            if i.item() == 1:
+                break
+            results.append(outputs.idx2word[i.item()])
+            d_i = i.squeeze().detach()
 
-            decoder_input = torch.tensor([[0]], device=device)
-
-            decoder_hidden = encoder_hidden
-
-            decoded_words = []
-
-            for di in range(10):
-                decoder_output, decoder_hidden = decoder(decoder_input, decoder_hidden)
-                topv, topi = decoder_output.data.topk(1)
-                if topi.item() == 1:
-                    decoded_words.append('<EOS>')
-                    break
-                else:
-                    decoded_words.append(outputs.idx2word[topi.item()])
-
-                decoder_input = topi.squeeze().detach()
-        result = ' '.join(decoded_words).encode().decode('utf-8').replace(" <EOS>", "")
+        result = ' '.join(results).encode().decode('utf-8')
         m1 = Bleu(ngram=1, smooth="smooth1")
         m2 = Bleu(ngram=2, smooth="smooth1")
         m3 = Bleu(ngram=3, smooth="smooth1")
@@ -167,17 +118,27 @@ def evaluate(encoder: Encoder, decoder: Decoder, translation_pairs: list, inputs
         bleu2_sum += (m2.compute().item())
         bleu3_sum += (m3.compute().item())
         bleu4_sum += (m4.compute().item())
-        logging.info(f"Model Result: { result }")
+        logging.info(f"{pair[1]} == {result}")
 
-    logging.info(f"BLEU1: { bleu1_sum / len(translation_pairs) }")
-    logging.info(f"BLEU2: { bleu2_sum / len(translation_pairs) }")
-    logging.info(f"BLEU3: { bleu3_sum / len(translation_pairs) }")
-    logging.info(f"BLEU4: { bleu4_sum / len(translation_pairs) }")
+    print(f"BLEU1: {bleu1_sum / len(translation_pairs)}")
+    print(f"BLEU2: {bleu2_sum / len(translation_pairs)}")
+    print(f"BLEU3: {bleu3_sum / len(translation_pairs)}")
+    print(f"BLEU4: {bleu4_sum / len(translation_pairs)}")
+
+
+def sentencing(vocab: Vocab, sentence: str) -> torch.tensor:
+    idx = [vocab.word2idx[word] for word in sentence.split(' ') if (word in vocab.word2idx)]
+    idx.append(1)
+    return torch.tensor(idx, dtype=torch.long, device=device).view(-1, 1)
+
+
+def pairing(pair: list, translation_input: Vocab, translation_output: Vocab):
+    return (sentencing(translation_input, pair[0]), sentencing(translation_output, pair[1]))
 
 
 if __name__ == '__main__':
     hidden = 256
-    epochs = 70000
+    epochs = 80000
     lr = 0.01
     s = datetime.now().strftime("%Y-%m-%d-%H:%M:%S")
     logging.basicConfig(filename=f"log/{s}.log", encoding='utf-8',
@@ -188,15 +149,14 @@ if __name__ == '__main__':
     logging.info(f"Device: {device}")
 
     logging.info(f"Start Preprocessing...")
-    translation_input: Vocab
-    translation_input, translation_output, pairs = preprocess()
-
+    translation_input, translation_output, pairs = preprocess("data/eng-fra-train.txt")
+    _, _, test_pairs = preprocess("data/eng-fra-test.txt")
     logging.info(f"Initializing Encoder and Decoder...")
     encoder = Encoder(translation_input.word_count, hidden).to(device)
     decoder = Decoder(hidden, translation_output.word_count).to(device)
     logging.info(f"Start Training...")
-
-    train(encoder, decoder, 80000, translation_input, translation_output, pairs)
+    """
+    train(encoder, decoder, epochs, translation_input, translation_output, pairs)
 
     logging.info(f"Saving Objects...")
 
@@ -204,8 +164,10 @@ if __name__ == '__main__':
     torch.save(decoder.state_dict(), f'checkpoint/decoder{s}.pth')
     """
     logging.info(f"Loading Objects...")
-    encoder.load_state_dict(torch.load('checkpoint/encoder2021-10-31-04:03:50.pth'))
-    decoder.load_state_dict(torch.load('checkpoint/decoder2021-10-31-04:03:50.pth'))
-    """
-    logging.info("Start Evaluating...")
+    encoder.load_state_dict(torch.load('checkpoint/encoder2021-11-01-18:01:11.pth', map_location=torch.device('cpu') ))
+    decoder.load_state_dict(torch.load('checkpoint/decoder2021-11-01-18:01:11.pth', map_location=torch.device('cpu')))
+
+    logging.info("Start Evaluating Training...")
     evaluate(encoder, decoder, pairs, translation_input, translation_output)
+    logging.info("Start Evaluating Testing...")
+    evaluate(encoder, decoder, test_pairs, translation_input, translation_output)
