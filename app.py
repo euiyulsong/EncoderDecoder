@@ -68,13 +68,11 @@ def query(encoder: Encoder, decoder: Decoder, num: int, input: str, inputs: Voca
             d_i, d_h)
         _, i = d_o.data.topk(1)
         if i.item() == 1:
-            result.append('<EOS>')
             break
-        else:
-            result.append(outputs.idx2word[i.item()])
+        result.append(outputs.idx2word[i.item()])
 
         d_i = i.squeeze().detach()
-    result = ' '.join(result).encode().decode('utf-8').replace(" <EOS>", "")
+    result = ' '.join(result).encode().decode('utf-8')
     logging.info(f"Model Result: {result}")
     return result
 
@@ -92,8 +90,7 @@ def index():
 
 if __name__ == '__main__':
     hidden = 256
-    epochs = 70000
-    lr = 0.01
+
     s = datetime.now().strftime("%Y-%m-%d-%H:%M:%S")
     logging.basicConfig(filename=f"log/app{s}.log", encoding='utf-8',
                         level=logging.DEBUG)
